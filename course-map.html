@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Course Map — Irrigation & Drainage</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Barlow+Condensed:wght@400;600;700&display=swap');
+
+  :root {
+    --green-dark: #1a2e1a;
+    --green-mid: #2d4a2d;
+    --green-light: #3d6b3d;
+    --accent: #7ec850;
+    --water: #4a9ebb;
+    --water-light: #7dc4e0;
+    --panel: #0f1f0f;
+    --panel-border: #2a3f2a;
+    --text: #d4e8c2;
+    --text-dim: #7a9870;
+    --warning: #e8b84a;
+    --danger: #e85a4a;
+    --white: #f0f5ec;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Barlow Condensed', sans-serif;
+    background: var(--green-dark);
+    color: var(--text);
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--panel-border);
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    z-index: 1000;
+  }
+  header h1 { font-size: 18px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--accent); }
+  header h1 span { color: var(--text-dim); font-weight: 400; }
+
+  .header-right { display: flex; gap: 6px; align-items: center; }
+
+  .sync-badge {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    padding: 3px 8px; border-radius: 4px;
+    display: flex; align-items: center; gap: 4px;
+    background: var(--green-mid); color: var(--text-dim);
+    transition: all 0.3s;
+  }
+  .sync-badge.syncing { color: var(--warning); border: 1px solid var(--warning); }
+  .sync-badge.synced { color: var(--accent); border: 1px solid var(--accent); }
+  .sync-badge.error { color: var(--danger); border: 1px solid var(--danger); }
+  .sync-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .sync-dot.pulse { animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .gps-indicator {
+    font-family: 'DM Mono', monospace; font-size: 10px;
+    color: var(--text-dim); background: var(--green-mid);
+    padding: 3px 7px; border-radius: 4px;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .gps-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); transition: background 0.3s; }
+  .gps-dot.active { background: var(--accent); animation: pulse 1.5s infinite; }
+
+  #map { flex: 1; width: 100%; z-index: 1; }
+
+  .layer-bar {
+    background: var(--panel);
+    border-top: 1px solid var(--panel-border);
+    border-bottom: 1px solid var(--panel-border);
+    display: flex; flex-shrink: 0;
+  }
+  .layer-toggle {
+    flex: 1; padding: 8px 6px;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.5px;
+    text-transform: uppercase; border: none;
+    background: transparent; color: var(--text-dim);
+    cursor: pointer; border-right: 1px solid var(--panel-border);
+    transition: all 0.2s;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    min-width: 70px;
+  }
+  .layer-toggle:last-child { border-right: none; }
+  .layer-toggle.active { color: var(--white); background: var(--green-mid); }
+  .layer-toggle.active.irrigation { color: var(--accent); }
+  .layer-toggle.active.drainage { color: var(--water-light); }
+  .layer-toggle .layer-icon { font-size: 16px; }
+
+  .action-bar {
+    background: var(--panel);
+    border-top: 1px solid var(--panel-border);
+    padding: 10px 12px; flex-shrink: 0;
+  }
+
+  .mode-label {
+    font-size: 11px; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 1px;
+    margin-bottom: 8px; font-family: 'DM Mono', monospace;
+  }
+
+  .btn-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+
+  .btn {
+    padding: 9px 6px; border: 1px solid var(--panel-border);
+    border-radius: 6px; background: var(--green-mid); color: var(--text);
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    transition: all 0.15s; letter-spacing: 0.3px; text-transform: uppercase;
+  }
+  .btn .btn-icon { font-size: 18px; }
+  .btn:active { transform: scale(0.96); }
+  .btn.btn-irrigation { border-color: var(--accent); color: var(--accent); }
+  .btn.btn-drainage { border-color: var(--water); color: var(--water-light); }
+  .btn.btn-drain-active { background: #1a3040; border-color: var(--water); color: var(--water-light); }
+  .btn.btn-danger { border-color: var(--danger); color: var(--danger); }
+  .btn.btn-warning { border-color: var(--warning); color: var(--warning); }
+
+  .drain-status {
+    background: #0d2233; border: 1px solid var(--water);
+    border-radius: 6px; padding: 8px 12px; margin-bottom: 8px;
+    font-size: 13px; color: var(--water-light);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .drain-status.hidden { display: none; }
+  .drain-pts { font-family: 'DM Mono', monospace; font-size: 11px; }
+
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+    z-index: 3000; display: flex; align-items: flex-end;
+    opacity: 0; pointer-events: none; transition: opacity 0.2s;
+  }
+  .modal-overlay.open { opacity: 1; pointer-events: all; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 16px 16px 0 0; padding: 20px; width: 100%;
+    transform: translateY(100%); transition: transform 0.3s ease;
+  }
+  .modal-overlay.open .modal { transform: translateY(0); }
+  .modal h2 { font-size: 20px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  .modal h2.irrigation { color: var(--accent); }
+  .modal h2.drainage { color: var(--water-light); }
+  .modal-coords { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-dim); margin-bottom: 16px; }
+  .modal label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); display: block; margin-bottom: 4px; margin-top: 12px; }
+  .modal input, .modal select, .modal textarea {
+    width: 100%; padding: 10px 12px;
+    background: var(--green-mid); border: 1px solid var(--panel-border);
+    border-radius: 6px; color: var(--white);
+    font-family: 'Barlow Condensed', sans-serif; font-size: 15px; outline: none;
+  }
+  .modal textarea { resize: none; height: 70px; font-size: 14px; }
+  .modal-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+  .modal-btn {
+    padding: 12px; border-radius: 8px; border: none;
+    font-family: 'Barlow Condensed', sans-serif;
+    font-size: 16px; font-weight: 700; text-transform: uppercase;
+    cursor: pointer; letter-spacing: 0.5px;
+  }
+  .modal-btn.save { background: var(--accent); color: var(--green-dark); }
+  .modal-btn.cancel { background: var(--green-mid); color: var(--text); border: 1px solid var(--panel-border); }
+
+  .toast {
+    position: fixed; bottom: 200px; left: 50%; transform: translateX(-50%);
+    background: var(--green-mid); border: 1px solid var(--accent);
+    color: var(--accent); padding: 10px 20px; border-radius: 20px;
+    font-size: 14px; font-weight: 600; letter-spacing: 0.5px;
+    z-index: 4000; opacity: 0; transition: opacity 0.3s;
+    white-space: nowrap; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+
+  .marker-icon {
+    width: 32px; height: 32px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; border: 2px solid rgba(255,255,255,0.3);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+  }
+  .m-sprinkler    { background: #2d5a1e; border-color: var(--accent); }
+  .m-valve        { background: #5a3a1e; border-color: var(--warning); }
+  .m-quickconnect { background: #1e3a5a; border-color: #6ab0e8; }
+  .m-catchbasin   { background: #1a3040; border-color: var(--water); }
+  .m-outlet       { background: #0d2233; border-color: var(--water-light); }
+
+  .leaflet-popup-content-wrapper {
+    background: var(--panel) !important; border: 1px solid var(--panel-border) !important;
+    border-radius: 8px !important; color: var(--text) !important;
+    font-family: 'Barlow Condensed', sans-serif !important;
+  }
+  .leaflet-popup-tip { background: var(--panel) !important; }
+  .popup-title { font-size: 16px; font-weight: 700; text-transform: uppercase; margin-bottom: 4px; }
+  .popup-coords { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text-dim); margin-bottom: 6px; }
+  .popup-note { font-size: 13px; color: var(--text-dim); margin-bottom: 8px; }
+  .popup-delete {
+    background: var(--danger); color: white; border: none;
+    border-radius: 4px; padding: 5px 12px; font-size: 12px;
+    font-family: 'Barlow Condensed', sans-serif; font-weight: 600;
+    cursor: pointer; text-transform: uppercase;
+  }
+  .leaflet-container { background: #1a2e1a; }
+  .leaflet-control-zoom a { background: var(--panel) !important; color: var(--text) !important; border-color: var(--panel-border) !important; }
+  .leaflet-control-attribution { background: rgba(15,31,15,0.8) !important; color: var(--text-dim) !important; font-size: 9px !important; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Course <span>Map</span></h1>
+  <div class="header-right">
+    <div class="sync-badge" id="syncBadge">
+      <div class="sync-dot" id="syncDot"></div>
+      <span id="syncText">Connecting…</span>
+    </div>
+    <div class="gps-indicator">
+      <div class="gps-dot" id="gpsDot"></div>
+      <span id="gpsText">GPS</span>
+    </div>
+  </div>
+</header>
+
+<div id="map"></div>
+
+<div class="layer-bar">
+  <button class="layer-toggle irrigation active" id="toggleIrrigation" onclick="toggleLayer('irrigation')">
+    <span class="layer-icon">💧</span>Irrigation
+  </button>
+  <button class="layer-toggle drainage active" id="toggleDrainage" onclick="toggleLayer('drainage')">
+    <span class="layer-icon">🌊</span>Drainage
+  </button>
+  <button class="layer-toggle active" id="toggleSatellite" onclick="toggleSatellite()">
+    <span class="layer-icon">🛰️</span>Satellite
+  </button>
+</div>
+
+<div class="action-bar">
+  <div class="drain-status hidden" id="drainStatus">
+    <span>📍 Drawing drain line… <span class="drain-pts" id="drainPtsCount">0 pts</span></span>
+    <button class="btn btn-warning" style="padding:4px 10px;font-size:12px;border-radius:4px;" onclick="finishDrainLine()">Finish</button>
+  </div>
+  <div class="mode-label" id="modeLabel">Add Feature</div>
+  <div class="btn-grid" id="btnGrid">
+    <button class="btn btn-irrigation" onclick="addFeatureAtGPS('sprinkler')"><span class="btn-icon">💦</span>Sprinkler</button>
+    <button class="btn btn-irrigation" onclick="addFeatureAtGPS('valve')"><span class="btn-icon">🔧</span>Shut-off Valve</button>
+    <button class="btn btn-irrigation" onclick="addFeatureAtGPS('quickconnect')"><span class="btn-icon">🔌</span>Quick Connect</button>
+    <button class="btn btn-drainage" onclick="addFeatureAtGPS('catchbasin')"><span class="btn-icon">⬛</span>Catch Basin</button>
+    <button class="btn btn-drainage" id="drainLineBtn" onclick="startDrainLine()"><span class="btn-icon">〰️</span>Drain Line</button>
+    <button class="btn btn-drainage" onclick="addFeatureAtGPS('outlet')"><span class="btn-icon">🌊</span>Creek Outlet</button>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <h2 id="modalTitle" class="irrigation">Add Feature</h2>
+    <div class="modal-coords" id="modalCoords"></div>
+    <label>Type</label>
+    <select id="featureSubtype"></select>
+    <label>Label / ID</label>
+    <input type="text" id="featureLabel" placeholder="e.g. Zone 3 Head #7">
+    <label>Notes</label>
+    <textarea id="featureNotes" placeholder="Condition, size, zone, any details…"></textarea>
+    <div class="modal-btns">
+      <button class="modal-btn cancel" onclick="closeModal()">Cancel</button>
+      <button class="modal-btn save" onclick="saveFeature()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://ytoalibyjuppkhudjonu.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_QJUYHOYwPbhE3bpJGFgboA_PE6iuYr4';
+
+const HEADERS = {
+  'apikey': SUPABASE_KEY,
+  'Authorization': `Bearer ${SUPABASE_KEY}`,
+  'Content-Type': 'application/json',
+  'Prefer': 'return=representation'
+};
+
+// ─── STATE ────────────────────────────────────────────────────────────────────
+let map, streetLayer, satelliteLayer, useSatellite = false;
+let irrigationGroup, drainageGroup, drainMarkerGroup;
+let layerVisible = { irrigation: true, drainage: true };
+let currentGPS = null;
+let pendingFeature = null;
+let drainingLine = false;
+let currentDrainPoints = [];
+let currentDrainPolyline = null;
+let markerMap = {}; // id -> leaflet marker
+let polylineMap = {}; // id -> leaflet polyline
+
+const SUBTYPES = {
+  sprinkler:    ['Rotor Head','Pop-up Spray','Impact Head','Rotary Nozzle','Bubbler'],
+  valve:        ['Main Shut-off','Zone Valve','Ball Valve','Gate Valve','Isolation Valve'],
+  quickconnect: ['Quick Coupler','Hose Bib','Service Connection'],
+  catchbasin:   ['Standard Basin','Area Drain','French Drain Inlet','Trench Drain'],
+  outlet:       ['Creek Outlet','Pond Outlet','Ditch Outlet'],
+};
+
+const TYPE_META = {
+  sprinkler:    { emoji:'💦', label:'Sprinkler Head',  class:'m-sprinkler',    layer:'irrigation', color:'#7ec850' },
+  valve:        { emoji:'🔧', label:'Shut-off Valve',  class:'m-valve',        layer:'irrigation', color:'#e8b84a' },
+  quickconnect: { emoji:'🔌', label:'Quick Connect',   class:'m-quickconnect', layer:'irrigation', color:'#6ab0e8' },
+  catchbasin:   { emoji:'⬛', label:'Catch Basin',     class:'m-catchbasin',   layer:'drainage',   color:'#4a9ebb' },
+  outlet:       { emoji:'🌊', label:'Creek Outlet',    class:'m-outlet',       layer:'drainage',   color:'#7dc4e0' },
+};
+
+// ─── SUPABASE API ─────────────────────────────────────────────────────────────
+async function dbGet(table) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=*`, { headers: HEADERS });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function dbInsert(table, data) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+    method: 'POST', headers: HEADERS, body: JSON.stringify(data)
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function dbDelete(table, id) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
+    method: 'DELETE', headers: HEADERS
+  });
+  if (!r.ok) throw new Error(await r.text());
+}
+
+// ─── SYNC STATUS ──────────────────────────────────────────────────────────────
+function setSyncStatus(status, text) {
+  const badge = document.getElementById('syncBadge');
+  const dot = document.getElementById('syncDot');
+  const label = document.getElementById('syncText');
+  badge.className = `sync-badge ${status}`;
+  dot.className = `sync-dot ${status === 'syncing' ? 'pulse' : ''}`;
+  label.textContent = text;
+}
+
+// ─── MAP INIT ─────────────────────────────────────────────────────────────────
+function initMap() {
+  map = L.map('map', { zoomControl: true });
+
+  streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors', maxZoom: 22
+  });
+  satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles © Esri', maxZoom: 22
+  });
+
+  streetLayer.addTo(map);
+  irrigationGroup  = L.layerGroup().addTo(map);
+  drainageGroup    = L.layerGroup().addTo(map);
+  drainMarkerGroup = L.layerGroup().addTo(map);
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(pos => {
+      map.setView([pos.coords.latitude, pos.coords.longitude], 18);
+      startGPSWatch();
+    }, () => map.setView([43.6, -79.5], 15), { enableHighAccuracy: true });
+  } else {
+    map.setView([43.6, -79.5], 15);
+  }
+
+  loadFromCloud();
+}
+
+// ─── GPS ──────────────────────────────────────────────────────────────────────
+function startGPSWatch() {
+  navigator.geolocation.watchPosition(pos => {
+    currentGPS = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+    document.getElementById('gpsDot').classList.add('active');
+    document.getElementById('gpsText').textContent = `±${Math.round(pos.coords.accuracy)}m`;
+  }, () => {}, { enableHighAccuracy: true, maximumAge: 5000 });
+}
+
+// ─── LOAD FROM CLOUD ──────────────────────────────────────────────────────────
+async function loadFromCloud() {
+  setSyncStatus('syncing', 'Loading…');
+  try {
+    const [features, drainLines] = await Promise.all([
+      dbGet('features'),
+      dbGet('drain_lines')
+    ]);
+    irrigationGroup.clearLayers();
+    drainageGroup.clearLayers();
+    features.forEach(renderFeature);
+    drainLines.forEach(renderDrainLine);
+    setSyncStatus('synced', `${features.length + drainLines.length} items`);
+  } catch(e) {
+    setSyncStatus('error', 'Offline');
+    showToast('Could not connect to cloud — check your internet');
+    console.error(e);
+  }
+}
+
+// ─── LAYERS ───────────────────────────────────────────────────────────────────
+function toggleLayer(name) {
+  layerVisible[name] = !layerVisible[name];
+  const group = name === 'irrigation' ? irrigationGroup : drainageGroup;
+  const btn = document.getElementById('toggle' + name.charAt(0).toUpperCase() + name.slice(1));
+  if (layerVisible[name]) { group.addTo(map); btn.classList.add('active'); }
+  else { map.removeLayer(group); btn.classList.remove('active'); }
+}
+
+function toggleSatellite() {
+  useSatellite = !useSatellite;
+  const btn = document.getElementById('toggleSatellite');
+  if (useSatellite) { map.removeLayer(streetLayer); satelliteLayer.addTo(map); btn.classList.add('active'); }
+  else { map.removeLayer(satelliteLayer); streetLayer.addTo(map); btn.classList.remove('active'); }
+}
+
+// ─── ADD FEATURE ──────────────────────────────────────────────────────────────
+function addFeatureAtGPS(type) {
+  const go = (lat, lng) => openModal(type, lat, lng);
+  if (currentGPS) { go(currentGPS.lat, currentGPS.lng); return; }
+  if (navigator.geolocation) {
+    showToast('Getting GPS…');
+    navigator.geolocation.getCurrentPosition(
+      pos => { currentGPS = { lat: pos.coords.latitude, lng: pos.coords.longitude }; go(currentGPS.lat, currentGPS.lng); },
+      () => { const c = map.getCenter(); go(c.lat, c.lng); showToast('Using map center'); },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  } else { const c = map.getCenter(); go(c.lat, c.lng); }
+}
+
+// ─── MODAL ────────────────────────────────────────────────────────────────────
+function openModal(type, lat, lng) {
+  pendingFeature = { type, lat, lng };
+  const meta = TYPE_META[type];
+  const title = document.getElementById('modalTitle');
+  title.textContent = `Add ${meta.label}`;
+  title.className = meta.layer;
+  document.getElementById('modalCoords').textContent = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+  document.getElementById('featureLabel').value = '';
+  document.getElementById('featureNotes').value = '';
+  const sel = document.getElementById('featureSubtype');
+  sel.innerHTML = SUBTYPES[type].map(s => `<option>${s}</option>`).join('');
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('open');
+  pendingFeature = null;
+}
+
+async function saveFeature() {
+  if (!pendingFeature) return;
+  const f = {
+    id: Date.now().toString(),
+    type: pendingFeature.type,
+    lat: pendingFeature.lat,
+    lng: pendingFeature.lng,
+    subtype: document.getElementById('featureSubtype').value,
+    label: document.getElementById('featureLabel').value || document.getElementById('featureSubtype').value,
+    notes: document.getElementById('featureNotes').value
+  };
+  closeModal();
+  setSyncStatus('syncing', 'Saving…');
+  try {
+    await dbInsert('features', f);
+    renderFeature(f);
+    setSyncStatus('synced', 'Saved ✓');
+    showToast(`${TYPE_META[f.type].label} saved!`);
+  } catch(e) {
+    setSyncStatus('error', 'Save failed');
+    showToast('Save failed — check connection');
+    console.error(e);
+  }
+}
+
+// ─── DRAIN LINE ───────────────────────────────────────────────────────────────
+function startDrainLine() {
+  if (drainingLine) return;
+  drainingLine = true;
+  currentDrainPoints = [];
+  document.getElementById('drainStatus').classList.remove('hidden');
+  document.getElementById('modeLabel').textContent = 'Drain Line Mode';
+  document.getElementById('btnGrid').innerHTML = `
+    <button class="btn btn-drainage btn-drain-active" onclick="addDrainPoint()" style="grid-column:span 2">
+      <span class="btn-icon">📍</span>Add Point Here
+    </button>
+    <button class="btn btn-danger" onclick="cancelDrainLine()">
+      <span class="btn-icon">✕</span>Cancel
+    </button>`;
+}
+
+function addDrainPoint() {
+  const go = (lat, lng) => {
+    currentDrainPoints.push({ lat, lng });
+    document.getElementById('drainPtsCount').textContent = currentDrainPoints.length + ' pts';
+    if (currentDrainPolyline) map.removeLayer(currentDrainPolyline);
+    if (currentDrainPoints.length > 1) {
+      currentDrainPolyline = L.polyline(currentDrainPoints.map(p => [p.lat, p.lng]), {
+        color: '#4a9ebb', weight: 3, dashArray: '6,4', opacity: 0.8
+      }).addTo(drainMarkerGroup);
+    }
+    L.circleMarker([lat, lng], { radius: 5, color: '#4a9ebb', fillColor: '#7dc4e0', fillOpacity: 0.9, weight: 2 }).addTo(drainMarkerGroup);
+    showToast(`Point ${currentDrainPoints.length} added`);
+  };
+  if (currentGPS) { go(currentGPS.lat, currentGPS.lng); return; }
+  navigator.geolocation && navigator.geolocation.getCurrentPosition(
+    pos => { currentGPS = { lat: pos.coords.latitude, lng: pos.coords.longitude }; go(currentGPS.lat, currentGPS.lng); },
+    () => { const c = map.getCenter(); go(c.lat, c.lng); },
+    { enableHighAccuracy: true, timeout: 6000 }
+  );
+}
+
+async function finishDrainLine() {
+  if (currentDrainPoints.length < 2) { showToast('Need at least 2 points'); return; }
+  const dl = { id: Date.now().toString(), points: currentDrainPoints };
+  drainMarkerGroup.clearLayers();
+  if (currentDrainPolyline) { map.removeLayer(currentDrainPolyline); currentDrainPolyline = null; }
+  resetDrainMode();
+  setSyncStatus('syncing', 'Saving…');
+  try {
+    await dbInsert('drain_lines', dl);
+    renderDrainLine(dl);
+    setSyncStatus('synced', 'Saved ✓');
+    showToast(`Drain line saved (${dl.points.length} points)`);
+  } catch(e) {
+    setSyncStatus('error', 'Save failed');
+    showToast('Save failed — check connection');
+    console.error(e);
+  }
+}
+
+function cancelDrainLine() {
+  drainMarkerGroup.clearLayers();
+  if (currentDrainPolyline) { map.removeLayer(currentDrainPolyline); currentDrainPolyline = null; }
+  resetDrainMode();
+}
+
+function resetDrainMode() {
+  drainingLine = false; currentDrainPoints = [];
+  document.getElementById('drainStatus').classList.add('hidden');
+  document.getElementById('modeLabel').textContent = 'Add Feature';
+  document.getElementById('btnGrid').innerHTML = `
+    <button class="btn btn-irrigation" onclick="addFeatureAtGPS('sprinkler')"><span class="btn-icon">💦</span>Sprinkler</button>
+    <button class="btn btn-irrigation" onclick="addFeatureAtGPS('valve')"><span class="btn-icon">🔧</span>Shut-off Valve</button>
+    <button class="btn btn-irrigation" onclick="addFeatureAtGPS('quickconnect')"><span class="btn-icon">🔌</span>Quick Connect</button>
+    <button class="btn btn-drainage" onclick="addFeatureAtGPS('catchbasin')"><span class="btn-icon">⬛</span>Catch Basin</button>
+    <button class="btn btn-drainage" id="drainLineBtn" onclick="startDrainLine()"><span class="btn-icon">〰️</span>Drain Line</button>
+    <button class="btn btn-drainage" onclick="addFeatureAtGPS('outlet')"><span class="btn-icon">🌊</span>Creek Outlet</button>`;
+}
+
+// ─── RENDER ───────────────────────────────────────────────────────────────────
+function renderFeature(f) {
+  const meta = TYPE_META[f.type];
+  if (!meta) return;
+  const group = meta.layer === 'irrigation' ? irrigationGroup : drainageGroup;
+  const icon = L.divIcon({
+    html: `<div class="marker-icon ${meta.class}">${meta.emoji}</div>`,
+    className: '', iconSize: [32,32], iconAnchor: [16,16], popupAnchor: [0,-18]
+  });
+  const marker = L.marker([f.lat, f.lng], { icon }).addTo(group);
+  marker.bindPopup(`
+    <div class="popup-title" style="color:${meta.color}">${meta.emoji} ${f.label}</div>
+    <div class="popup-coords">${parseFloat(f.lat).toFixed(6)}, ${parseFloat(f.lng).toFixed(6)}</div>
+    <div style="font-size:13px;color:#7a9870;margin-bottom:4px">${f.subtype}</div>
+    ${f.notes ? `<div class="popup-note">${f.notes}</div>` : ''}
+    <button class="popup-delete" onclick="deleteFeature('${f.id}')">Delete</button>
+  `);
+  markerMap[f.id] = marker;
+}
+
+function renderDrainLine(dl) {
+  const pts = dl.points;
+  if (!pts || pts.length < 2) return;
+  const latlngs = pts.map(p => [p.lat, p.lng]);
+  const poly = L.polyline(latlngs, { color: '#4a9ebb', weight: 3, opacity: 0.85 })
+    .addTo(drainageGroup)
+    .bindPopup(`
+      <div class="popup-title" style="color:#7dc4e0">🌊 Drain Line</div>
+      <div style="font-size:13px;color:#7a9870">${pts.length} points</div>
+      <button class="popup-delete" onclick="deleteDrainLine('${dl.id}')">Delete</button>`);
+  L.circleMarker(latlngs[0], { radius:6, color:'#4a9ebb', fillColor:'#7dc4e0', fillOpacity:1, weight:2 }).addTo(drainageGroup);
+  L.circleMarker(latlngs[latlngs.length-1], { radius:6, color:'#7dc4e0', fillColor:'#4a9ebb', fillOpacity:1, weight:2 }).addTo(drainageGroup);
+  polylineMap[dl.id] = poly;
+}
+
+// ─── DELETE ───────────────────────────────────────────────────────────────────
+async function deleteFeature(id) {
+  map.closePopup();
+  setSyncStatus('syncing', 'Deleting…');
+  try {
+    await dbDelete('features', id);
+    if (markerMap[id]) { irrigationGroup.removeLayer(markerMap[id]); drainageGroup.removeLayer(markerMap[id]); delete markerMap[id]; }
+    setSyncStatus('synced', 'Deleted ✓');
+    showToast('Feature deleted');
+  } catch(e) {
+    setSyncStatus('error', 'Delete failed');
+    showToast('Delete failed — check connection');
+  }
+}
+
+async function deleteDrainLine(id) {
+  map.closePopup();
+  setSyncStatus('syncing', 'Deleting…');
+  try {
+    await dbDelete('drain_lines', id);
+    if (polylineMap[id]) { drainageGroup.removeLayer(polylineMap[id]); delete polylineMap[id]; }
+    setSyncStatus('synced', 'Deleted ✓');
+    showToast('Drain line deleted');
+  } catch(e) {
+    setSyncStatus('error', 'Delete failed');
+    showToast('Delete failed');
+  }
+}
+
+// ─── TOAST ────────────────────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ─── START ────────────────────────────────────────────────────────────────────
+initMap();
+
+// Auto-refresh every 30 seconds to pick up changes from coworkers
+setInterval(loadFromCloud, 30000);
+</script>
+</body>
+</html>
